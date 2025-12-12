@@ -6,13 +6,7 @@ from typing import List
 import streamlit as st
 
 
-# -----------------------------
-# Parsing
-# -----------------------------
 def parse_series(text: str) -> List[float]:
-    """
-    Parse numbers from text. Accepts comma/space/newline/semicolon.
-    """
     if not text or not text.strip():
         return []
     tokens = re.split(r"[,\s;]+", text.strip())
@@ -28,29 +22,18 @@ def parse_series(text: str) -> List[float]:
 
 
 def fmt_one_line(vals: List[float]) -> str:
-    """Format raw series as one line: v1, v2, v3"""
     return ", ".join(f"{v:g}" for v in vals)
 
 
-# -----------------------------
-# T Segment Logic (only T)
-# -----------------------------
 @dataclass
 class TSegment:
     seg_idx: int
     raw_from: float
     raw_to: float
-    pct_delta: float
     T: float
 
 
 def compute_T_segments(raw: List[float], denom: float = 80.0) -> List[TSegment]:
-    """
-    Segment-based T:
-      pct_delta = 100 * (raw[i] - raw[i-1]) / raw[i-1]
-      T = pct_delta / denom
-    Output length = n-1 segments.
-    """
     segs: List[TSegment] = []
     if len(raw) < 2:
         return segs
@@ -60,24 +43,17 @@ def compute_T_segments(raw: List[float], denom: float = 80.0) -> List[TSegment]:
         b = raw[i]
         pct = 0.0 if a == 0 else 100.0 * (b - a) / a
         T = pct / denom
-        segs.append(TSegment(i, a, b, pct, T))
-
+        segs.append(TSegment(i, a, b, T))
     return segs
 
 
 def format_T_segments(segs: List[TSegment]) -> str:
     lines = []
     for s in segs:
-        lines.append(
-            f"Seg {s.seg_idx:02d}: {s.raw_from:.6g} → {s.raw_to:.6g} | "
-            f"%Δ={s.pct_delta:+.3f}% | T={s.T:+.6g}"
-        )
+        lines.append(f"Seg {s.seg_idx:02d}: {s.raw_from:.6g} → {s.raw_to:.6g} | T={s.T:+.6g}")
     return "\n".join(lines)
 
 
-# -----------------------------
-# Tab renderer
-# -----------------------------
 def render_tab(tab_key: str, label: str, default_vals: List[float]):
     col_left, col_right = st.columns(2, gap="large")
 
@@ -86,13 +62,12 @@ def render_tab(tab_key: str, label: str, default_vals: List[float]):
     raw_vals_key = f"{tab_key}_raw_vals"
     segs_key = f"{tab_key}_Tsegs"
 
-    # Default raw in ONE LINE comma-separated
     default_text = fmt_one_line(default_vals)
 
     with col_left:
-        st.markdown("### Raw series (points)")
+        st.markdown("### Raw series (max 10 points)")
         raw_text = st.text_area(
-            "Paste values (comma separated, one line preferred)",
+            "Paste up to 10 values (comma separated)",
             value=st.session_state.get(raw_key, default_text),
             height=110,
             key=raw_key,
@@ -100,12 +75,14 @@ def render_tab(tab_key: str, label: str, default_vals: List[float]):
 
         raw_vals = parse_series(raw_text)
 
-        # Echo back as one-line comma separated (so it always looks clean)
+        # Enforce max 10 points
+        if len(raw_vals) > 10:
+            raw_vals = raw_vals[:10]
+            st.warning("Only the first 10 values are used.")
+
+        st.caption(f"Parsed: {len(raw_vals)} points")
         if raw_vals:
-            st.caption(f"Parsed: {len(raw_vals)} points")
             st.code(fmt_one_line(raw_vals), language="text")
-        else:
-            st.caption("Parsed: 0 points")
 
         denom = st.number_input(
             "Denominator for T = (%Δraw)/denom",
@@ -130,7 +107,7 @@ def render_tab(tab_key: str, label: str, default_vals: List[float]):
             st.text_area(
                 "Segments",
                 value=format_T_segments(segs_show),
-                height=260,
+                height=240,
                 key=f"{tab_key}_Tsegs_text_out",
             )
         else:
@@ -153,13 +130,9 @@ def render_tab(tab_key: str, label: str, default_vals: List[float]):
             st.info("Compute T first to show T chart.")
 
 
-# -----------------------------
-# App
-# -----------------------------
 st.set_page_config(page_title="ET Demo – HRV & VO2 (T-only)", layout="wide")
-
 st.title("ET Demo – HRV & VO₂ (2 Tabs, Segment-based T only)")
-st.caption("Each tab: left = raw → compute → T segments list; right = raw chart + T chart (no E).")
+st.caption("Raw input max 10 points. Output and chart show T only (no %Δ shown, no E).")
 
 tab_hrv, tab_vo2 = st.tabs(["HRV", "VO₂"])
 
@@ -169,4 +142,4 @@ with tab_hrv:
 
 with tab_vo2:
     st.subheader("VO₂")
-    render_tab("vo2", "VO₂", default_vals=[12, 15, 18, 22, 28, 35, 40, 38, 30, 22, 16])
+    render_tab("vo2", "VO₂", default_vals=[12, 15, 18, 22, 28, 35, 40, 38, 30, 22])
