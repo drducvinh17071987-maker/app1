@@ -6,7 +6,11 @@ from typing import List
 import streamlit as st
 
 
+# -----------------------------
+# Parsing
+# -----------------------------
 def parse_series(text: str) -> List[float]:
+    """Parse numbers from comma/space/newline/semicolon separated text."""
     if not text or not text.strip():
         return []
     tokens = re.split(r"[,\s;]+", text.strip())
@@ -21,6 +25,9 @@ def parse_series(text: str) -> List[float]:
     return vals
 
 
+# -----------------------------
+# ET Segment Logic (T, E) embedded
+# -----------------------------
 @dataclass
 class ETSegment:
     seg_idx: int
@@ -32,6 +39,13 @@ class ETSegment:
 
 
 def compute_et_segments(raw: List[float], denom: float = 80.0) -> List[ETSegment]:
+    """
+    Segment-based ET:
+      pct_delta = 100 * (raw[i] - raw[i-1]) / raw[i-1]
+      T = pct_delta / denom
+      E = 1 - T^2
+    Output length = n-1 segments.
+    """
     segs: List[ETSegment] = []
     if len(raw) < 2:
         return segs
@@ -39,12 +53,11 @@ def compute_et_segments(raw: List[float], denom: float = 80.0) -> List[ETSegment
     for i in range(1, len(raw)):
         a = raw[i - 1]
         b = raw[i]
-
         pct = 0.0 if a == 0 else 100.0 * (b - a) / a
         T = pct / denom
         E = 1.0 - (T * T)
-
         segs.append(ETSegment(i, a, b, pct, T, E))
+
     return segs
 
 
@@ -58,6 +71,9 @@ def format_segments(segs: List[ETSegment]) -> str:
     return "\n".join(lines)
 
 
+# -----------------------------
+# Tab renderer
+# -----------------------------
 def render_tab(tab_key: str, label: str, default_text: str):
     col_left, col_right = st.columns(2, gap="large")
 
@@ -110,15 +126,42 @@ def render_tab(tab_key: str, label: str, default_text: str):
         st.markdown("### Raw chart (points)")
         raw_vals_show: List[float] = st.session_state.get(raw_vals_key, raw_vals)
         if raw_vals_show:
-            # No matplotlib: use Streamlit built-in chart
             st.line_chart({"raw": raw_vals_show})
         else:
             st.info("No raw data to plot yet.")
 
+        st.markdown("### ET chart (segments)")
+        segs_show: List[ETSegment] = st.session_state.get(segs_key, [])
+        if segs_show:
+            # NOTE: E is often near 1, so T can look more "dynamic".
+            et_E = [s.E for s in segs_show]
+            et_T = [s.T for s in segs_show]
 
-st.set_page_config(page_title="ET Demo – HRV & VO2", layout="wide")
+            chart_mode = st.radio(
+                "ET chart mode",
+                options=["E", "T", "Both"],
+                horizontal=True,
+                key=f"{tab_key}_chart_mode",
+            )
+
+            if chart_mode == "E":
+                st.line_chart({"ET_E": et_E})
+            elif chart_mode == "T":
+                st.line_chart({"ET_T": et_T})
+            else:
+                # show both series on one chart
+                st.line_chart({"ET_E": et_E, "ET_T": et_T})
+        else:
+            st.info("Compute ET first to show ET chart.")
+
+
+# -----------------------------
+# App
+# -----------------------------
+st.set_page_config(page_title="ET Demo – HRV & VO2 (Segment-based)", layout="wide")
+
 st.title("ET Demo – HRV & VO₂ (2 Tabs, Segment-based ET)")
-st.caption("Each tab: left = raw → compute → ET segments list; right = raw chart only (no ET chart).")
+st.caption("Each tab: left = raw → compute → ET segments list; right = raw chart + ET chart (segment-based).")
 
 tab_hrv, tab_vo2 = st.tabs(["HRV", "VO₂"])
 
